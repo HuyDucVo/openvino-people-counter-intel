@@ -25,20 +25,9 @@
 import os
 import sys
 import logging as log
-from openvino.inference_engine import IENetwork, IECore
+from openvino.inference_engine import IENetwork, IECore, IEPlugin
 
-def all_layers_supported(engine, network):
-    ### TODO check if all layers are supported
-    ### return True if all supported, False otherwise
-    layers_supported = engine.query_network(network, device_name='CPU')
-    layers = network.layers.keys()
-
-    all_supported = True
-    for l in layers:
-        if l not in layers_supported:
-            all_supported = False
-            print("Layer not supported: ", l)
-            return all_supported
+        
 class Network:
     """
     Load and configure inference plugins for the specified target devices 
@@ -54,29 +43,36 @@ class Network:
         self.exec_network = None
         self.infer_request = None
 
-    def load_model(self, model, CPU_EXTENSION, DEVICE):
+    def load_model(self, model, CPU_EXTENSION, DEVICE, REQUEST_ID, PLUGIN=None):
         ### TODO: Load the model ###
         model_xml = model
         model_bin = os.path.splitext(model_xml)[0] + ".bin"
         print("Model XML: ",model)
         print("Model Bin: ", model_bin)
         
-        self.plugin = IECore()
+        if not PLUGIN:
+            log.info("Initializing plugin for {} device...".format(DEVICE))
+            self.plugin = IEPlugin(device=DEVICE)
+        else:
+            self.plugin = PLUGIN
+        if CPU_EXTENSION and 'CPU' in DEVICE:
+            self.plugin.add_cpu_extension(CPU_EXTENSION)
         self.network = IENetwork(model=model_xml, weights=model_bin)
         ### TODO: Check for supported layers ###
-        if not all_layers_supported(self.plugin, self.network):
-            self.plugin.add_extension(CPU_EXTENSION, DEVICE)
-        self.exec_network = self.plugin.load_network(self.network, DEVICE)
+        all_layers_supported(self.plugin, self.network)
         
         
         ### TODO: Add any necessary extensions ###
         self.input_blob = next(iter(self.network.inputs))
         self.output_blob = next(iter(self.network.outputs))
-        
+        if REQUEST_ID == 0:
+            self.exec_network = self.plugin.load(network=self.network)
+        else:
+            self.net_plugin = self.plugin.load(network=self.network, num_requests=REQUEST_ID)
         ### TODO: Return the loaded inference plugin ###
         ### Note: You may need to update the function parameters. ###
         
-        return self.plugin, self.get_input_shape()
+        return
     
     def get_input_shape(self):
         ### TODO: Return the shape of the input layer ###
@@ -92,25 +88,37 @@ class Network:
         ### Note: You may need to update the function parameters. ###
         self.infer_request_handle = self.exec_network.start_async(request_id, inputs=net_input)
         return self.infer_request_handle
-
-    def wait(self):
+    
+    def wait(self, request_id):
         ### TODO: Wait for the request to be complete. ###
         ### TODO: Return any necessary information ###
         ### Note: You may need to update the function parameters. ###
-        status = self.infer_request_handle.wait()
-        return status
+        wait_process = self.exec_network.requests[request_id].wait(-1)
+        return wait_process
 
-    def get_output(self):
+    def get_output(self, request_id, output=None):
         ### TODO: Extract and return the output results
         ### Note: You may need to update the function parameters. ###
-        out = self.infer_request_handle.outputs[self.output_blob]
-        return out
+        if output:
+            res = self.infer_request_handle.outputs[output]
+        else:
+            res = self.exec_network.requests[request_id].outputs[self.output_blob]
+        return res
     
     def clean(self):
-        """
-        Deletes all the instances
-        :return: None
-        """
         del self.net_plugin
         del self.plugin
         del self.net
+
+def all_layers_supported(engine, network):
+    layers_supported = engine.get_supported_layers(network)
+    layers = network.layers.keys()
+
+    not_supported_layers = [l for l in layers if l not in layers_supported]
+    if len(not_supported_layers) != 0:
+        log.error("Following layers are not supported by "
+                  "the plugin for specified device {}".format(not_supported_layers))
+        log.error("Please try to specify cpu extensions library path"
+                  " in command line parameters using -l "
+                  "or --cpu_extension command line argument")
+        sys.exit(1)

@@ -53,7 +53,7 @@ def build_argparser():
     parser.add_argument("-i", "--input", required=True, type=str,
                         help="Path to image or video file")
     parser.add_argument("-l", "--cpu_extension", required=False, type=str,
-                        default=None,
+                        default="/opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so",
                         help="MKLDNN (CPU)-targeted custom layers."
                              "Absolute path to a shared library with the"
                              "kernels impl.")
@@ -93,8 +93,12 @@ def infer_on_stream(args, client):
     DEVICE = args.device
     CPU_EXTENSION = args.cpu_extension
     single_image_mode = False
+    last_count = 0
+    total_count = 0
+    start_time = 0
     ### TODO: Load the model through `infer_network` ###
-    inference_network.load_model(model, CPU_EXTENSION, DEVICE)
+    request_id=0
+    inference_network.load_model(model, CPU_EXTENSION, DEVICE,request_id)
     network_shape = inference_network.get_input_shape()
     
     ### TODO: Handle the input stream ###
@@ -118,14 +122,6 @@ def infer_on_stream(args, client):
     
     
     ### TODO: Loop until stream is over ###
-    duration_previous = 0
-    counter_total = 0
-    duration = 0
-    request_id=0
-    
-    report = 0
-    counter = 0
-    counter_previous = 0
     
     counter_prob_hit = 0
     total_prob_hit = 0
@@ -149,68 +145,60 @@ def infer_on_stream(args, client):
         start = time.time()
         inference_network.exec_net(network_input, request_id)
         ### TODO: Wait for the result ###
-        if inference_network.wait() == 0:
+        if inference_network.wait(request_id) == 0:
             ### TODO: Get the results of the inference request ###
             end = time.time()
             log.warn("Inference time")
             log.warn( str((end - start)*1000))
-            network_output = inference_network.get_output()
+            network_output = inference_network.get_output(request_id)
             if end - start > max_time:
-                max_time = end - start
+                max_time = (end - start)*1000
             log.warn("Max Time:")
             log.warn(max_time)
             ### TODO: Extract any desired stats from the results ###
-            pointer = 0
             probs = network_output[0, 0, :, 2]
+            
+            current_count = 0
             for i, p in enumerate(probs):
                 if p > probability_threshold:
-                    pointer += 1
                     box = network_output[0, 0, i, 3:]
                     p1 = (int(box[0] * width), int(box[1] * height))
                     p2 = (int(box[2] * width), int(box[3] * height))
-                    frame = cv2.rectangle(frame, p1, p2, (0, 255, 0), 3)
+                    frame = cv2.rectangle(frame, p1, p2, (0, 55, 255), 1)
+                    current_count = current_count + 1
                     counter_prob_hit += 1
                     total_prob_hit += p
                 else:
                     if p > probability_threshold - 0.1:
                         counter_prob_miss += 1
                         total_prob_miss += p
-                    
-            if pointer != counter:
-                counter_previous = counter
-                counter = pointer
-                if duration >= 3:
-                    duration_previous = duration
-                    duration = 0
-                else:
-                    duration = duration_previous + duration
-                    duration_previous = 0  # unknown, not needed in this case
-                    
-            else:
-                duration += 1
-                if duration >= 3:
-                    report = counter
-                    if duration == 3 and counter > counter_previous:
-                        counter_total += counter - counter_previous
-                    elif duration == 3 and counter < counter_previous:
-                        duration_report = int((duration_previous / 10.0) * 1000)
+                
             ### TODO: Calculate and send relevant information on ###
             ### current_count, total_count and duration to the MQTT server ###
             ### Topic "person": keys of "count" and "total" ###
             ### Topic "person/duration": key of "duration" ###
-            client.publish('person',payload=json.dumps({
-                               'count': report, 'total': counter_total}),
-                               qos=0, retain=False)
-            if duration_report is not None:
-                client.publish('person/duration',
-                               payload=json.dumps({'duration':duration_report}),
-                               qos=0, retain=False)
+            if current_count > last_count:
+                start_time = time.time()
+                total_count = total_count + current_count - last_count
+                client.publish("person", json.dumps({"total": total_count}))
+            if current_count < last_count:
+                duration = int(time.time() - start_time)
+                # Publish messages to the MQTT server
+                client.publish("person/duration",
+                               json.dumps({"duration": duration}))
+                
+            client.publish("person", json.dumps({"count": current_count}))
+            last_count = current_count
+            
+            
             if counter_prob_hit != 0:
                 log.warn("Average prob hit: ")
                 log.warn(str(total_prob_hit/counter_prob_hit ))
             if counter_prob_miss != 0:
                 log.warn("Average prob miss less than 0.1 threshold: ")
                 log.warn(str(total_prob_miss/counter_prob_miss))
+                
+ 
         ### TODO: Send the frame to the FFMPEG server ###
         frame = cv2.resize(frame, (768, 432))
         sys.stdout.buffer.write(frame)
@@ -220,15 +208,16 @@ def infer_on_stream(args, client):
             cv2.imwrite('output_image.jpg', frame)
     cap.release()
     cv2.destroyAllWindows()
-
+    client.disconnect()
+    infer_network.clean()
 
 def main():
     """
     Load the network and parse the output.
 
     :return: None
-    python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m frozen_inference_graph.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.4 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
-        python main1.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m person-detection-retail-0013.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.4 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
+    python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m frozen_inference_graph.xml -d CPU -pt 0.4 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
+        python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m person-detection-retail-0013.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.4 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
         sudo ./downloader.py --name person-detection-retail-0013 -o /home/workspace
     """
     # Grab command line args
