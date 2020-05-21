@@ -32,6 +32,12 @@ import paho.mqtt.client as mqtt
 
 from argparse import ArgumentParser
 from inference import Network
+import resource
+def using(point=""):
+    usage=resource.getrusage(resource.RUSAGE_SELF)
+    return '''%s: usertime=%s systime=%s mem=%s mb
+           '''%(point,usage[0],usage[1],
+                usage[2]/1024.0 )
 
 # MQTT server environment variables
 HOSTNAME = socket.gethostname()
@@ -150,6 +156,7 @@ def infer_on_stream(args, client):
             end = time.time()
             log.warn("Inference time")
             log.warn( str((end - start)*1000))
+            log.warn(using("after"))
             network_output = inference_network.get_output(request_id)
             if end - start > max_time:
                 max_time = (end - start)*1000
@@ -216,8 +223,11 @@ def main():
     Load the network and parse the output.
 
     :return: None
+    
+    cmd to run
+    
     python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m frozen_inference_graph.xml -d CPU -pt 0.4 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
-        python main.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m person-detection-retail-0013.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.4 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
+        python main1.py -i resources/Pedestrian_Detect_2_1_1.mp4 -m person-detection-retail-0013.xml -l /opt/intel/openvino/deployment_tools/inference_engine/lib/intel64/libcpu_extension_sse4.so -d CPU -pt 0.4 | ffmpeg -v warning -f rawvideo -pixel_format bgr24 -video_size 768x432 -framerate 24 -i - http://0.0.0.0:3004/fac.ffm
         sudo ./downloader.py --name person-detection-retail-0013 -o /home/workspace
     """
     # Grab command line args
@@ -229,4 +239,5 @@ def main():
 
 
 if __name__ == '__main__':
+    log.warn(using("before"))
     main()

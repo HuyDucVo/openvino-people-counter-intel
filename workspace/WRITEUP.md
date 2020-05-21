@@ -19,13 +19,15 @@ cd faster_rcnn_inception_v2_coco_2018_01_28
 python /opt/intel/openvino/deployment_tools/model_optimizer/mo.py --input_model faster_rcnn_inception_v2_coco_2018_01_28/frozen_inference_graph.pb --tensorflow_object_detection_api_pipeline_config pipeline.config --reverse_input_channels --tensorflow_use_custom_operations_config /opt/intel/openvino/deployment_tools/model_optimizer/extensions/front/tf/faster_rcnn_support.json
 ```
 ## Comparing Model Performance
-My methods to compare models before and after conversion to Intermediate Representations were based on size of model, max-min accuracy, inference time, network need, cost of using cloud service.
+My methods to compare models before and after conversion to Intermediate Representations were based on size of model, max-min accuracy, inference time, network need, cost of using cloud service. I do average all the probability every time the Inference detect a person. I also put a timer before it takes the frame to the Inference and after it resturn the result. I implemented using() to calculate the memory that it currently using.
 
-The difference between model accuracy pre- and post-conversion was very significantly different. In post-conversion, the model 
+The difference between model accuracy pre- and post-conversion was similiar. Both of the models yield over 90% probability on average. 
+
+The memory usage is significantly different. The post-conversion model used 210 MB(before: 56MB After: 266). The pre-trained model used 72 MB(before: 54MB after 126MB)
 
 The size of the model pre- and post-conversion was significantly different. For the faster_rcnn_inception_v2_coco_2018_01_28, pre-conversion is 57 MB, post-conversion is 51 MB and for the pre-trained person-detection-retail-0013 is nearly 2 MB.
 
-The inference time of the model pre- and post-conversion was significantly different. For the faster_rcnn_inception_v2_coco_2018_01_28, a pure coco tf, it takes max time 960ms to process. Meanwhile, the pre-trained model person-detection-retail-0013 takes max 46ms.
+The inference time of the model pre- and post-conversion was significantly different. For the faster_rcnn_inception_v2_coco_2018_01_28, a pure coco tf, it takes average time 960ms to process. Meanwhile, the pre-trained model person-detection-retail-0013 takes average 46ms.
 
 For the network, notice the output above, we can see that the faster_rcnn_inception_v2_coco_2018_01_28 barely works with the server since it's slow to load the next frame. Mean while the person-detection-retail-0013 work better.
 
