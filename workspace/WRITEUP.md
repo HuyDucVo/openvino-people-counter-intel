@@ -2,7 +2,7 @@
 
 ## Explaining Custom Layers
 
-According to some researches, I pick faster_rcnn_inception_v2_coco_2018_01_28 over other models in the Tennsorflow Model Zoo here(https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/detection_model_zoo.md)  and the OpenCV zoo here(https://docs.openvinotoolkit.org/2019_R1/_docs_MO_DG_prepare_model_convert_model_Convert_Model_From_TensorFlow.html) ].
+According to the previous review, I tried ssd_mobilenet_v1_coco_2018_01_28 but it cannot detect the person. I suspose the model that the reviewer used some custome mobilenet not the plain like the requirement. According to some researches, I pick faster_rcnn_inception_v2_coco_2018_01_28 over other models in the Tennsorflow Model Zoo here(https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/detection_model_zoo.md)  and the OpenCV zoo here(https://docs.openvinotoolkit.org/2019_R1/_docs_MO_DG_prepare_model_convert_model_Convert_Model_From_TensorFlow.html) ].
 Overal, the faster_rcnn_inception_v2_coco_2018_01_28 perform better in accuaracy. Intel openVINO already contains extensions for custom layers used in TensorFlow Object Detection Model Zoo.
 
 Steps: 
